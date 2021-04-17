@@ -23,15 +23,21 @@ import random
 import sys
 import time
 import tqdm
+import transformers
+# from transformers import DistilBertTokenizer, DistilBertModel
+from transformers import BertTokenizer, BertModel
+import torch
 
 import dynet as dy
+import tensorflow as tf
 from optparse import OptionParser
+from sklearn.decomposition import PCA, TruncatedSVD
 
-from .conll09 import VOCDICT, FRAMEDICT, FEDICT, LUDICT, LUPOSDICT, DEPRELDICT, CLABELDICT, POSDICT, LEMDICT, lock_dicts, post_train_lock_dicts
+from .conll09 import VOCDICT, FRAMEDICT, FEDICT, LUDICT, LUPOSDICT, DEPRELDICT, CLABELDICT, POSDICT, LEMDICT, lock_dicts, post_train_lock_dicts, CoNLL09Example, CoNLL09Element
 from .dataio import read_conll, get_wvec_map, read_ptb, read_frame_maps, read_frame_relations
 from .evaluation import calc_f, evaluate_example_argid, evaluate_corpus_argid
 from .globalconfig import VERSION, TRAIN_EXEMPLAR, TRAIN_FTE, TRAIN_FTE_CONSTITS, UNK, EMPTY_LABEL, EMPTY_FE, TEST_CONLL, DEV_CONLL, ARGID_LR
-from .housekeeping import Factor, filter_long_ex, unk_replace_tokens
+from .housekeeping import Factor, filter_long_ex, unk_replace_tokens, FspDict
 from .discrete_argid_feats import ArgPosition, OutHeads, SpanWidth
 from .raw_data import make_data_instance
 from .semafor_evaluation import convert_conll_to_frame_elements
@@ -97,6 +103,7 @@ if USE_PTB_CONSTITS:
     ptbexamples = read_ptb()
 
 trainexamples, _, _ = read_conll(train_conll, options.syn)
+
 post_train_lock_dicts()
 
 frmfemap, corefrmfemap, _ = read_frame_maps()
@@ -163,10 +170,11 @@ configuration = {"train": train_conll,
                  "lstm_input_dim": 64,
                  "lstm_dim": 64,
                  "lstm_depth": 1,
-                 "hidden_dim": 64,
+                 "hidden_dim": 786,
                  "use_dropout": USE_DROPOUT,
                  "pretrained_embedding_dim": PRETDIM,
-                 "num_epochs": 10 if not options.exemplar else 25,
+                #  "num_epochs": 10 if not options.exemplar else 25,
+                 "num_epochs": 1,
                  "patience": 3,
                  "eval_after_every_epochs": 100,
                  "dev_eval_epoch_frequency": 5}
@@ -218,6 +226,7 @@ ALL_FEATS_DIM = 2 * LSTMDIM \
                 + FEDIM \
                 + ARGPOSDIM \
                 + SPANDIM \
+                + 333 \
                 + 2  # spanlen and log spanlen features and is a constitspan
 
 
@@ -333,8 +342,27 @@ if USE_PTB_CONSTITS:
     b_fb = model.add_parameters((LSTMDIM, 1))
     DELTA = len(trainexamples) * 1.0 / len(ptbexamples)
     sys.stderr.write("weighing PTB down by %f\n" % DELTA)
+    
+# BERT MODEL
 
+# Load pre-trained model (weights)
+bert_model = BertModel.from_pretrained('bert-base-uncased',
+    output_hidden_states = True, # Whether the model returns all hidden-states.
+)
+# Put the model in "evaluation" mode, meaning feed-forward operation.
+bert_model.eval()
 
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+    
+def get_sentence_from_conll_example(conll_example):
+    sentence = []
+    for element in conll_example._elements:
+        sentence.append(CoNLL09Element.get_predicted_lemma(element))
+    
+    return " ".join(sentence)
+
+   
 def get_base_embeddings(trainmode, unkdtokens, tg_start, sentence):
     sentlen = len(unkdtokens)
 
@@ -372,7 +400,6 @@ def get_base_embeddings(trainmode, unkdtokens, tg_start, sentence):
         baseinp_x = [dy.rectify(w_di * dy.concatenate([dhead_x[j], dheadp_x[j], drel_x[j], basebi_x[j]]) +
                         b_di) for j in range(sentlen)]
         basebi_x = baseinp_x
-
     return basebi_x
 
 
@@ -405,9 +432,8 @@ def get_target_frame_embeddings(embposdist_x, tfdict):
 
     return tfemb, frame
 
-
 def get_span_embeddings(embpos_x):
-    sentlen = len(embpos_x)
+    sentlen = len(embpos_x) #len of sen
     fws = [[None for _ in range(sentlen)] for _ in range(sentlen)]
     bws = [[None for _ in range(sentlen)] for _ in range(sentlen)]
 
@@ -426,7 +452,6 @@ def get_span_embeddings(embpos_x):
         for j in range(i, spanend):
             # for j in range(i, sentlen):
             fws[i][j] = tmpfws[j - i]
-
         bw_init = builders[1].initial_state()
         tmpbws = bw_init.transduce(reversed(embpos_x[:i + 1]))
         if len(tmpbws) != i + 1:
@@ -436,7 +461,7 @@ def get_span_embeddings(embpos_x):
             spansize = ALLOWED_SPANLEN + 1
         for k in range(spansize):
             bws[i - k][i] = tmpbws[k]
-
+            
     return fws, bws
 
 
@@ -475,8 +500,43 @@ def get_cpath_embeddings(sentence):
         phrpaths[phrpath] = cpathlstm
     return phrpaths
 
+def get_span_bert_expression(regular_sentence, i ,j):
+    # ref : https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/#3-extracting-embeddings
+    
+    text = regular_sentence[i:j+1]
+    
+    # Define a new example sentence with multiple meanings of the word "bank"
 
-def get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, spaths_x=None, cpaths_x=None):
+    # Add the special tokens.
+    marked_text = "[CLS] " + text + " [SEP]"
+
+    # Split the sentence into tokens.
+    tokenized_text = marked_text.split(" ")
+
+    # Map the token strings to their vocabulary indeces.
+    indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
+    
+    # Mark each of the 22 tokens as belonging to sentence "1".
+    segments_ids = [1] * len(tokenized_text)
+
+    # Convert inputs to PyTorch tensors
+    tokens_tensor = torch.tensor([indexed_tokens])
+    segments_tensors = torch.tensor([segments_ids])
+   
+    # Run the text through BERT, and collect all of the hidden states produced
+    # from all 12 layers. 
+    with torch.no_grad():
+        outputs = bert_model(tokens_tensor, segments_tensors)
+        hidden_states = outputs[2]
+        token_vecs = hidden_states[-2][0]
+
+        # Calculate the average of all 22 token vectors.
+        sentence_embedding = torch.mean(token_vecs, dim=0)
+        
+    return dy.inputTensor(np.array(sentence_embedding))
+
+
+def get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, reg_sentence, spaths_x=None, cpaths_x=None):
     factexprs = {}
     sentlen = len(fws)
 
@@ -487,24 +547,8 @@ def get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, spaths_
         istart = 0
         if USE_SPAN_CLIP and j > ALLOWED_SPANLEN: istart = max(0, j - ALLOWED_SPANLEN)
         for i in range(istart, j + 1):
-
-            spanlen = dy.scalarInput(j - i + 1)
-            logspanlen = dy.scalarInput(math.log(j - i + 1))
-            spanwidth = sp_x[SpanWidth.howlongisspan(i, j)]
-            spanpos = ap_x[ArgPosition.whereisarg((i, j), targetspan)]
-
-            fbemb_ij_basic = dy.concatenate([fws[i][j], bws[i][j], tfemb, spanlen, logspanlen, spanwidth, spanpos])
-            if USE_DEPS:
-                outs = oh_s[OutHeads.getnumouts(i, j, sentence.outheads)]
-                shp = spaths_x[sentence.shortest_paths[(i, j, targetspan[0])]]
-                fbemb_ij = dy.concatenate([fbemb_ij_basic, outs, shp])
-            elif USE_CONSTITS:
-                isconstit = dy.scalarInput((i, j) in sentence.constitspans)
-                lca = ct_x[sentence.lca[(i, j)][1]]
-                phrp = cpaths_x[sentence.cpaths[(i, j, targetspan[0])]]
-                fbemb_ij = dy.concatenate([fbemb_ij_basic, isconstit, lca, phrp])
-            else:
-                fbemb_ij = fbemb_ij_basic
+            # Get span expression through BERT            
+            fbemb_ij = get_span_bert_expression(reg_sentence, i, j)
 
             for y in valid_fes:
                 fctr = Factor(i, j, y)
@@ -809,7 +853,7 @@ def decode(factexprscalars, sentlen, valid_fes):
     return mergedargmax
 
 
-def identify_fes(unkdtoks, sentence, tfdict, goldfes=None, testidx=None):
+def identify_fes(unkdtoks, sentence, regular_sentence, tfdict, goldfes=None, testidx=None):
     dy.renew_cg()
     trainmode = (goldfes is not None)
 
@@ -819,21 +863,25 @@ def identify_fes(unkdtoks, sentence, tfdict, goldfes=None, testidx=None):
     sentlen = len(unkdtoks)
     tfkeys = sorted(tfdict)
     tg_start = tfkeys[0]
-
+            
+     
     embpos_x = get_base_embeddings(trainmode, unkdtoks, tg_start, sentence)
+    # embpos_x = expression_list
     tfemb, frame = get_target_frame_embeddings(embpos_x, tfdict)
-
+    
+    best_dev_eval_str = ""
+    
     fws, bws = get_span_embeddings(embpos_x)
     valid_fes = frmfemap[frame.id] + [NOTANFEID]
     if USE_DEPS:
         spaths_x = get_deppath_embeddings(sentence, embpos_x)
-        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, spaths_x=spaths_x)
+        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, regular_sentence, spaths_x=spaths_x)
     elif USE_CONSTITS:
         cpaths_x = get_cpath_embeddings(sentence)
-        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, cpaths_x=cpaths_x)
+        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, regular_sentence, cpaths_x=cpaths_x)
     else:
-        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence)
-
+        factor_exprs = get_factor_expressions(fws, bws, tfemb, tfdict, valid_fes, sentence, regular_sentence)
+        
     if trainmode:
         segrnnloss = get_loss(factor_exprs, goldfes, valid_fes, sentlen)
         if USE_PTB_CONSTITS:
@@ -866,7 +914,6 @@ def identify_fes(unkdtoks, sentence, tfdict, goldfes=None, testidx=None):
 
 def identify_spans(unkdtoks, sentence, goldspans):
     dy.renew_cg()
-
     embpos_x = get_base_embeddings(True, unkdtoks, 0, sentence)
     fws, bws = get_span_embeddings(embpos_x)
 
@@ -917,15 +964,13 @@ if options.mode in ["refresh"]:
     fin.close()
     sys.stderr.write("Best dev F1 so far = %.4f\n" % best_dev_f1)
 
-best_dev_eval_str = ""
-
 if options.mode in ["train", "refresh"]:
     loss = 0.0
     lf = 0.0
     last_updated_epoch = 0
 
-    if USE_PTB_CONSTITS:
-        trainexamples = trainexamples + ptbexamples
+    # if USE_PTB_CONSTITS:
+    #     trainexamples = trainexamples + ptbexamples
 
     starttime = time.time()
 
@@ -947,6 +992,8 @@ if options.mode in ["train", "refresh"]:
 
             unkedtoks = []
             unk_replace_tokens(trex.tokens, unkedtoks, VOCDICT, UNK_PROB, UNKTOKEN)
+            
+            reg_sentence = get_sentence_from_conll_example(trex)
 
             if USE_PTB_CONSTITS and type(trex) == Sentence:  # a PTB example
                 trexloss, taggedinex = identify_spans(unkedtoks,
@@ -955,6 +1002,7 @@ if options.mode in ["train", "refresh"]:
             else:  # an FN example
                 trexloss, taggedinex = identify_fes(unkedtoks,
                                                     trex.sentence,
+                                                    reg_sentence,
                                                     trex.targetframedict,
                                                     goldfes=trex.invertedfes)
             # tagged += taggedinex
@@ -973,6 +1021,7 @@ if options.mode in ["train", "refresh"]:
 
                     dargmax = identify_fes(devex.tokens,
                                            devex.sentence,
+                                           reg_sentence,
                                            devex.targetframedict)
                     if devex.frame.id in corefrmfemap:
                         corefes = corefrmfemap[devex.frame.id]
@@ -1057,10 +1106,12 @@ elif options.mode == "test":
 
     testpredictions = []
     for tidx, testex in enumerate(devexamples, 1):
+        reg_sentence = get_sentence_from_conll_example(testex)
         if tidx % 100 == 0:
             sys.stderr.write(str(tidx) + "...")
         testargmax = identify_fes(testex.tokens,
                                   testex.sentence,
+                                  reg_sentence,
                                   testex.targetframedict,
                                   testidx=tidx - 1)
         testpredictions.append(testargmax)
@@ -1078,8 +1129,10 @@ elif options.mode == "test":
 elif options.mode == "predict":
     predictions = []
     for instance in instances:
+        reg_sentence = get_sentence_from_conll_example(instance)
         prediction = identify_fes(instance.tokens,
                                   instance.sentence,
+                                  reg_sentence,
                                   instance.targetframedict)
         predictions.append(prediction)
     sys.stderr.write("Printing output in CoNLL format to {}\n".format(out_conll_file))

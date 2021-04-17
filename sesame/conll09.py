@@ -64,7 +64,12 @@ class CoNLL09Element:
             self.role = FEDICT.addstr(ele[14][2:])
         else:
             self.role = FEDICT.addstr(ele[14])
+    
+    
+    def get_predicted_lemma(self):
+        return LEMDICT.getstr(self.nltk_lemma)
 
+    
     def get_str(self, rolelabel=None, no_args=False):
         idstr = str(self.id)
         form = VOCDICT.getstr(self.form)
