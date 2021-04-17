@@ -917,6 +917,8 @@ if options.mode in ["refresh"]:
     fin.close()
     sys.stderr.write("Best dev F1 so far = %.4f\n" % best_dev_f1)
 
+best_dev_eval_str = ""
+
 if options.mode in ["train", "refresh"]:
     loss = 0.0
     lf = 0.0

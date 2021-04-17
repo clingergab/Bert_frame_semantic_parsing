@@ -19,6 +19,13 @@ import time
 
 from .dataio import read_conll, read_frame_maps
 
+DATA_DIR = configuration["data_directory"]
+
+PARSER_DATA_DIR = DATA_DIR + "open_sesame_v1_data/fn1.7/"
+
+TEST_CONLL = PARSER_DATA_DIR + "fn1.7.test.syntaxnet.conll"
+
+
 def calc_f(scores):
     tp, fp, fn = scores
     if tp == 0.0 and fp == 0.0:

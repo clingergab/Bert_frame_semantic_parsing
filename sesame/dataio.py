@@ -76,6 +76,7 @@ def read_conll(conll_file, syn_type=None):
     sys.stderr.write("# examples with missing arguments : %d\n" % missingargs)
     if read_constits:
         analyze_constits_fes(examples)
+    # print("examples0: ", CoNLL09Example.get_str(examples[0]))
     return examples, missingargs, totalexamples
 
 
