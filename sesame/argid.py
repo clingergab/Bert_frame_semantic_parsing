@@ -97,6 +97,7 @@ if USE_PTB_CONSTITS:
     ptbexamples = read_ptb()
 
 trainexamples, _, _ = read_conll(train_conll, options.syn)
+print("------------train example: ", type(trainexamples))
 post_train_lock_dicts()
 
 frmfemap, corefrmfemap, _ = read_frame_maps()
@@ -923,7 +924,7 @@ if options.mode in ["train", "refresh"]:
     loss = 0.0
     lf = 0.0
     last_updated_epoch = 0
-
+    print("---use ptb ---", USE_PTB_CONSTITS)
     if USE_PTB_CONSTITS:
         trainexamples = trainexamples + ptbexamples
 
