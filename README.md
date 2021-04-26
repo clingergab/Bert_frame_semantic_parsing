@@ -25,7 +25,7 @@ $ python -m sesame.preprocess
 To train a model, run the following command and specifiy in the code itself (line 143) if you would like to use PCA or autoencoders for the vector dimensionality reduction. The output of the traninig is the trained model and a predicted conll file under `logs/$MODEL_NAME/best-$MODEL-1.7-model`. 
 
 ```sh
-$ python -m sesame.argid_bert --mode train --model_name $MODEL_NAME
+$ python -m sesame.argid_token_bert --mode train --model_name $MODEL_NAME
 ```
 
 ## Evaluation 
@@ -36,16 +36,9 @@ To evaluate the model, run the following command on the predicted conll file.
 $ python -m evaluation /PATH_TO_OPEN_SESAME_FOLDER/sesame/logs/MODEL_NAME/predicted-1.7-argid-dev.conll
 ```
 
-## Contact and Reference
+## References
 
-For questions and usage issues, please contact `sswayamd@alumni.cmu.edu`. If you use open-sesame for research, please cite [our paper](https://arxiv.org/pdf/1706.09528.pdf) as follows:
-
-```
-@article{swayamdipta:17,
-  title={{Frame-Semantic Parsing with Softmax-Margin Segmental RNNs and a Syntactic Scaffold}},
-  author={Swabha Swayamdipta and Sam Thomson and Chris Dyer and Noah A. Smith},
-  journal={arXiv preprint arXiv:1706.09528},
-  year={2017}
-}
-```
-
+1. Frame-Semantic Parsing With Softmax-Margin Segmental RNNs and a Syntactic Scaffold paper - https://arxiv.org/pdf/1706.09528.pdf
+2. open-SESAME - https://github.com/swabhs/open-sesame
+3. Extracting BERT word and span representation - https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/#3-extracting-embeddings
+4. Huggingface BERT model - https://huggingface.co/transformers/model_doc/bert.html
