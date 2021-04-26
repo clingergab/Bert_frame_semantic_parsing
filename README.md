@@ -22,7 +22,7 @@ $ python -m sesame.preprocess
 
 ## Training
 
-To train a model, run the following command and specifiy in the code itself (line 143) if you would like to use PCA or autoencoders for the vector dimensionality reduction. The output of the traninig is the trained model and a predicted conll file under `logs/$MODEL_NAME/best-$MODEL-1.7-model`. 
+To train a model (currently only the token version works - argid_token_bert.py), run the following command and specifiy in the code itself (line 143) if you would like to use PCA or autoencoders for the vector dimensionality reduction. The output of the traninig is the trained model and a predicted conll file under `logs/$MODEL_NAME/best-$MODEL-1.7-model`. 
 
 ```sh
 $ python -m sesame.argid_token_bert --mode train --model_name $MODEL_NAME
