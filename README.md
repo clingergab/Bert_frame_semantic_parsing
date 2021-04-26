@@ -4,7 +4,7 @@ Romy Zilkha, Jonathan Schwartz, Jonathan Bofman, Gabriel Clinger
 
 Inspired by the Frame-Semantic Parsing paper ([open-SESAME](https://github.com/swabhs/open-sesame)) that uses a Syntactic Scaffolding approach for Frame-Semantic Parsing. We build upon the existing scaffolding approach by incorporating attention mechanism into two distinct embedding phases (words and spans). We decided to use the huggingface implementation of BERT in order to integrate the attention mechanism into the existing argument identification model.
 
-![Frame-semantics example](NLP_poster_final.pdf)
+![Final poster](NLP_poster_final.pdf)
 
 ## Installation
 
