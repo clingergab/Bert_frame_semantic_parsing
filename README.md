@@ -42,3 +42,4 @@ $ python -m evaluation /PATH_TO_OPEN_SESAME_FOLDER/sesame/logs/MODEL_NAME/predic
 2. open-SESAME - https://github.com/swabhs/open-sesame
 3. Extracting BERT word and span representation - https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/#3-extracting-embeddings
 4. Huggingface BERT model - https://huggingface.co/transformers/model_doc/bert.html
+5. Autoenconders - https://towardsdatascience.com/dimensionality-reduction-pca-versus-autoencoders-338fcaf3297d
